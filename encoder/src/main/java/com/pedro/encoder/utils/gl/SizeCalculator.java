@@ -16,7 +16,9 @@ public class SizeCalculator {
       int previewHeight, int streamWidth, int streamHeight) {
     Pair<Point, Point> pair =
         getViewport(keepAspectRatio, mode, previewWidth, previewHeight, streamWidth, streamHeight);
-    GLES20.glViewport(pair.first.x, pair.first.y, pair.second.x, pair.second.y);
+    int realWidth = previewHeight * streamWidth / streamHeight;
+
+    GLES20.glViewport(-((realWidth - previewWidth) / 2), 0, realWidth, previewHeight);
   }
 
   public static Pair<Point, Point> getViewport(boolean keepAspectRatio, int mode, int previewWidth,
