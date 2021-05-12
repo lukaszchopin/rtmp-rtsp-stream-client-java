@@ -26,7 +26,7 @@ public class LightOpenGlView extends OpenGlViewBase {
 
   private SimpleCameraRender simpleCameraRender = null;
   private boolean keepAspectRatio = false;
-  private int aspectRatioMode = 0;
+  private AspectRatioMode aspectRatioMode = AspectRatioMode.Adjust;
   private boolean isFlipHorizontal = false, isFlipVertical = false;
 
   public LightOpenGlView(Context context) {
@@ -38,7 +38,7 @@ public class LightOpenGlView extends OpenGlViewBase {
     TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.LightOpenGlView);
     try {
       keepAspectRatio = typedArray.getBoolean(R.styleable.LightOpenGlView_keepAspectRatio, false);
-      aspectRatioMode = typedArray.getInt(R.styleable.OpenGlView_aspectRatioMode, 0);
+      aspectRatioMode = AspectRatioMode.fromId(typedArray.getInt(R.styleable.OpenGlView_aspectRatioMode, 0));
       isFlipHorizontal = typedArray.getBoolean(R.styleable.LightOpenGlView_isFlipHorizontal, false);
       isFlipVertical = typedArray.getBoolean(R.styleable.LightOpenGlView_isFlipVertical, false);
     } finally {
@@ -55,6 +55,10 @@ public class LightOpenGlView extends OpenGlViewBase {
 
   public boolean isKeepAspectRatio() {
     return keepAspectRatio;
+  }
+
+  public void setAspectRatioMode(AspectRatioMode aspectRatioMode) {
+    this.aspectRatioMode = aspectRatioMode;
   }
 
   public void setKeepAspectRatio(boolean keepAspectRatio) {
@@ -88,31 +92,27 @@ public class LightOpenGlView extends OpenGlViewBase {
         frameAvailable = false;
         surfaceManager.makeCurrent();
         simpleCameraRender.updateFrame();
-        simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio, aspectRatioMode,
+        simpleCameraRender.drawFrame(previewWidth, previewHeight, keepAspectRatio, aspectRatioMode.id,
             0, true, isStreamVerticalFlip, isStreamHorizontalFlip);
         surfaceManager.swapBuffer();
 
         synchronized (sync) {
           if (surfaceManagerEncoder != null && !fpsLimiter.limitFPS()) {
+            int w = muteVideo ? 0 : encoderWidth;
+            int h = muteVideo ? 0 : encoderHeight;
             surfaceManagerEncoder.makeCurrent();
-            if (muteVideo) {
-              simpleCameraRender.drawFrame(0, 0, false, aspectRatioMode, streamRotation, false,
-                  isStreamVerticalFlip, isStreamHorizontalFlip);
-            } else {
-              simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false, aspectRatioMode,
-                  streamRotation, false, isStreamVerticalFlip, isStreamHorizontalFlip);
-            }
-          } else if (takePhotoCallback != null && surfaceManagerPhoto != null) {
-            surfaceManagerPhoto.makeCurrent();
-            simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false, aspectRatioMode,
+            simpleCameraRender.drawFrame(w, h, false, aspectRatioMode.id,
                 streamRotation, false, isStreamVerticalFlip, isStreamHorizontalFlip);
+            surfaceManagerEncoder.swapBuffer();
           }
-          if (takePhotoCallback != null) {
+          if (takePhotoCallback != null && surfaceManagerPhoto != null) {
+            surfaceManagerPhoto.makeCurrent();
+            simpleCameraRender.drawFrame(encoderWidth, encoderHeight, false, aspectRatioMode.id,
+                streamRotation, false, isStreamVerticalFlip, isStreamHorizontalFlip);
             takePhotoCallback.onTakePhoto(GlUtil.getBitmap(encoderWidth, encoderHeight));
             takePhotoCallback = null;
+            surfaceManagerPhoto.swapBuffer();
           }
-          if (surfaceManagerEncoder != null) surfaceManagerEncoder.swapBuffer();
-          else if (surfaceManagerPhoto != null) surfaceManagerPhoto.swapBuffer();
         }
       }
     }
