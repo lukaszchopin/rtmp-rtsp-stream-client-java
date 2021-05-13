@@ -12,18 +12,20 @@ import kotlin.experimental.and
  *
  * RFC 3984
  */
-internal class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacketCallback: VideoPacketCallback) : BasePacket(RtpConstants.clockVideoFrequency, RtpConstants.payloadTypeVideo) {
+open class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacketCallback: VideoPacketCallback) : BasePacket(RtpConstants.clockVideoFrequency,
+    RtpConstants.payloadType + RtpConstants.trackVideo) {
 
   private val header = ByteArray(5)
   private var stapA: ByteArray? = null
   private var sendKeyFrame = false
 
   init {
-    channelIdentifier = (RtpConstants.trackVideo * 2).toByte()
+    channelIdentifier = RtpConstants.trackVideo
     setSpsPps(sps, pps)
   }
 
   override fun createAndSendPacket(byteBuffer: ByteBuffer, bufferInfo: MediaCodec.BufferInfo) {
+    if (bufferInfo.size < 5) return
     // We read a NAL units from ByteBuffer and we send them
     // NAL units are preceded with 0x00000001
     byteBuffer.rewind()
@@ -32,13 +34,15 @@ internal class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacke
     val naluLength = bufferInfo.size - byteBuffer.position() + 1
     val type: Int = (header[4] and 0x1F).toInt()
     if (type == RtpConstants.IDR || bufferInfo.flags == MediaCodec.BUFFER_FLAG_KEY_FRAME) {
+      //fix malformed keyframe header if necessary
+      if (type != RtpConstants.IDR) header[4] = RtpConstants.IDR.toByte()
       stapA?.let {
         val buffer = getBuffer(it.size + RtpConstants.RTP_HEADER_LENGTH)
-        updateTimeStamp(buffer, ts)
+        val rtpTs = updateTimeStamp(buffer, ts)
         markPacket(buffer) //mark end frame
         System.arraycopy(it, 0, buffer, RtpConstants.RTP_HEADER_LENGTH, it.size)
         updateSeq(buffer)
-        val rtpFrame = RtpFrame(buffer, ts, it.size + RtpConstants.RTP_HEADER_LENGTH, rtpPort, rtcpPort, channelIdentifier)
+        val rtpFrame = RtpFrame(buffer, rtpTs, it.size + RtpConstants.RTP_HEADER_LENGTH, rtpPort, rtcpPort, channelIdentifier)
         videoPacketCallback.onVideoFrameCreated(rtpFrame)
         sendKeyFrame = true
       } ?: run {
@@ -57,10 +61,10 @@ internal class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacke
         val buffer = getBuffer(length + RtpConstants.RTP_HEADER_LENGTH + 1)
         buffer[RtpConstants.RTP_HEADER_LENGTH] = header[4]
         byteBuffer.get(buffer, RtpConstants.RTP_HEADER_LENGTH + 1, length)
-        updateTimeStamp(buffer, ts)
+        val rtpTs = updateTimeStamp(buffer, ts)
         markPacket(buffer) //mark end frame
         updateSeq(buffer)
-        val rtpFrame = RtpFrame(buffer, ts, naluLength + RtpConstants.RTP_HEADER_LENGTH, rtpPort, rtcpPort, channelIdentifier)
+        val rtpFrame = RtpFrame(buffer, rtpTs, naluLength + RtpConstants.RTP_HEADER_LENGTH, rtpPort, rtcpPort, channelIdentifier)
         videoPacketCallback.onVideoFrameCreated(rtpFrame)
       } else {
         // Set FU-A header
@@ -84,7 +88,7 @@ internal class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacke
           val buffer = getBuffer(length + RtpConstants.RTP_HEADER_LENGTH + 2)
           buffer[RtpConstants.RTP_HEADER_LENGTH] = header[0]
           buffer[RtpConstants.RTP_HEADER_LENGTH + 1] = header[1]
-          updateTimeStamp(buffer, ts)
+          val rtpTs = updateTimeStamp(buffer, ts)
           byteBuffer.get(buffer, RtpConstants.RTP_HEADER_LENGTH + 2, length)
           sum += length
           // Last packet before next NAL
@@ -94,7 +98,7 @@ internal class H264Packet(sps: ByteArray, pps: ByteArray, private val videoPacke
             markPacket(buffer) //mark end frame
           }
           updateSeq(buffer)
-          val rtpFrame = RtpFrame(buffer, ts, length + RtpConstants.RTP_HEADER_LENGTH + 2, rtpPort, rtcpPort, channelIdentifier)
+          val rtpFrame = RtpFrame(buffer, rtpTs, length + RtpConstants.RTP_HEADER_LENGTH + 2, rtpPort, rtcpPort, channelIdentifier)
           videoPacketCallback.onVideoFrameCreated(rtpFrame)
           // Switch start bit
           header[1] = header[1] and 0x7F
